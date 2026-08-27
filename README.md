@@ -8,6 +8,12 @@ Linux/AMD64镜像，并在AgentRun中创建四个一一对应的Managed AgentRun
 - `a2a-provider-agent`
 - `a2a-concierge-agent`
 
+## 快捷入口
+
+- [AgentRun控制台（华东1/杭州）](https://functionai.console.aliyun.com/cn-hangzhou/agent/runtime/agent-list)
+- [AgentRun官方文档](https://help.aliyun.com/zh/agentrun/)
+- [ACR `agent-njd/audit`自动构建](https://cr.console.aliyun.com/repository/cn-hangzhou/agent-njd/audit/build)
+
 镜像是存放在ACR中的应用制品；Managed AgentRuntime是AgentRun云上负责拉取
 镜像、启动实例、扩缩容、健康检查、版本和Endpoint的托管运行资源。两者不是
 同一个概念。本方案的映射是：
