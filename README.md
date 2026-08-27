@@ -1,207 +1,175 @@
-# AgentRun企业化A2A部署
+# AgentRun A2A Trace 验证 Demo
 
-本目录是与原始`a2a/demo`隔离的AgentRun部署实现。它构建四个独立的
-Linux/AMD64镜像，并在AgentRun中创建四个一一对应的Managed AgentRuntime：
+本项目用于验证四个 A2A Agent 部署到阿里云 AgentRun 后的服务发现、跨 Agent
+调用和 ARMS Trace。四个 Agent 分别是：
 
-- `a2a-policy-agent`
-- `a2a-research-agent`
-- `a2a-provider-agent`
-- `a2a-concierge-agent`
+| Agent | 作用 |
+| --- | --- |
+| `a2a-policy-agent` | 根据保险计划文档回答覆盖范围问题 |
+| `a2a-research-agent` | 搜索并汇总公开健康资料 |
+| `a2a-provider-agent` | 根据地区和专科查找医生 |
+| `a2a-concierge-agent` | 发现并调用前三个 Agent，汇总最终回答 |
 
 ## 快捷入口
 
 - [AgentRun控制台（华东1/杭州）](https://functionai.console.aliyun.com/cn-hangzhou/agent/runtime/agent-list)
 - [AgentRun官方文档](https://help.aliyun.com/zh/agentrun/)
-- [ACR `agent-njd/audit`自动构建](https://cr.console.aliyun.com/repository/cn-hangzhou/agent-njd/audit/build)
+- [ACR `agent-njd/audit`构建页面](https://cr.console.aliyun.com/repository/cn-hangzhou/agent-njd/audit/build)
 
-镜像是存放在ACR中的应用制品；Managed AgentRuntime是AgentRun云上负责拉取
-镜像、启动实例、扩缩容、健康检查、版本和Endpoint的托管运行资源。两者不是
-同一个概念。本方案的映射是：
-
-| ACR镜像 | AgentRun资源 |
-| --- | --- |
-| `audit:policy-<tag>` | `a2a-policy-agent` Runtime |
-| `audit:research-<tag>` | `a2a-research-agent` Runtime |
-| `audit:provider-<tag>` | `a2a-provider-agent` Runtime |
-| `audit:concierge-<tag>` | `a2a-concierge-agent` Runtime |
-
-云端只启用阿里云ARMS Python探针发行包。镜像通过`aliyun-bootstrap`下载并
-安装官方探针；该发行包内部已经包含`aliyun-loongsuite-instrumentation-*`
-等LoongSuite/OpenTelemetry组件，因此不再叠加安装第二套LoongSuite、社区
-`opentelemetry-instrument`或旧Demo的`sitecustomize.py`。
-
-## 设计要点
+## 架构和资源关系
 
 ```text
-AgentRun Endpoint
+用户 / A2A客户端
        │
        ▼
-concierge AgentRuntime
-   │          │          │ A2A + W3C trace context
-   ▼          ▼          ▼
-policy     research    provider AgentRuntime
-   └──────────┴──────────┘
-               │ aliyun-instrument
-               ▼
-        AgentRun Observability / ARMS
-               │ SearchTraces + GetTrace
-               ▼
-        Windows本地JSON归档
+concierge公网Endpoint ──► concierge Runtime ──► 临时容器实例
+       │
+       ├── A2A发现/调用 ──► policy公网Endpoint   ──► policy Runtime
+       ├── A2A发现/调用 ──► research公网Endpoint ──► research Runtime
+       └── A2A发现/调用 ──► provider公网Endpoint ──► provider Runtime
+                                      │
+                                      ▼
+                              ARMS / AgentRun Trace
 ```
 
-企业部署改进：
+- **ACR镜像**是不可运行的应用制品，包含代码、依赖和启动命令。
+- **AgentRuntime**是持久的托管配置，记录镜像、环境变量、CPU、内存、协议、
+  健康检查和Endpoint。缩容到0不会删除Runtime。
+- **容器实例**是Runtime按请求创建的实际执行副本，可以扩容、回收和重新冷启动。
+- **Endpoint**是AgentRun分配的数据面入口，把公网请求转发到Runtime当前可用的
+  容器实例。
 
-- 服务启动不连接LLM或下游Agent，避免冷启动和发布探测失败。
-- LLM客户端及concierge依赖在首个业务请求中延迟初始化。
-- 统一监听`0.0.0.0:9000`。
-- Agent Card根据反向代理头动态生成公开URL，也支持`PUBLIC_BASE_URL`覆盖。
-- 提供`/healthz`存活检查与`/readyz`配置检查。
-- 阻塞式SDK调用放入工作线程，避免阻塞ASGI事件循环。
-- 增加不记录提示词/医疗内容的A2A业务Span。
-- JSON结构化日志，ARMS启用日志关联后可带`trace_id/span_id`。
-- 镜像以非root用户运行，本地Compose启用只读根文件系统和最小权限。
-- 四个镜像只安装各自Agent所需的直接依赖，可独立发布和回滚。
-- 密钥放在被Git忽略的`.env.local`中，Runtime YAML只在临时目录渲染。
+当前映射如下：
 
-## 目录
+| ACR镜像 | AgentRun Runtime |
+| --- | --- |
+| `audit:policy-<tag>` | `a2a-policy-agent` |
+| `audit:research-<tag>` | `a2a-research-agent` |
+| `audit:provider-<tag>` | `a2a-provider-agent` |
+| `audit:concierge-<tag>` | `a2a-concierge-agent` |
+
+## 公网Endpoint和A2A发现
+
+当前四个Runtime模板都配置了：
+
+```yaml
+network:
+  mode: PUBLIC
+endpoints:
+  - name: default
+    disablePublicNetworkAccess: false
+```
+
+因此四个Runtime都有公网Endpoint。当前部署的四个Agent Card地址均已验证返回
+`HTTP 200`：
 
 ```text
-aliyun-dev/
-├── docker/
-│   ├── Dockerfile
-│   └── compose.local.yml
-├── requirements/
-│   ├── common.txt
-│   ├── policy.txt
-│   ├── research.txt
-│   ├── provider.txt
-│   ├── concierge.txt
-│   └── trace-export.txt
-├── runtime/templates/
-│   ├── leaves.yaml.tmpl
-│   └── concierge.yaml.tmpl
-├── scripts/
-│   ├── Build-Images.ps1
-│   ├── Deploy-Runtimes.ps1
-│   ├── Export-Traces.ps1
-│   ├── Render-Runtime.ps1
-│   └── Start-Local.ps1
-├── src/agentrun_app/
-├── tests/
-└── tools/
+<A2A基础地址>/.well-known/agent-card.json
 ```
 
-## 一、Windows开发兼容性
+这里的“A2A发现”是指：调用方已经知道某个Agent的基础地址，然后读取它的
+Agent Card，得到Agent名称、能力和实际JSON-RPC调用地址。AgentRun不会让
+concierge自动按Runtime名称搜索其他Agent；三个叶子地址必须通过
+`POLICY_A2A_URL`、`RESEARCH_A2A_URL`和`PROVIDER_A2A_URL`明确提供给concierge。
 
-需要：
+Agent Card中的`url`必须是外部调用方真正能够访问的完整地址。应用优先使用
+AgentRun反向代理传入的`X-Forwarded-Proto`、`X-Forwarded-Host`和
+`X-Forwarded-Prefix`动态生成该地址；如果代理头不完整，则通过
+`PUBLIC_BASE_URL`明确覆盖。否则Agent Card可能错误地返回容器内部地址或缺少
+`/agent-runtimes/.../endpoints/default/invocations`路径，后续A2A调用就会失败。
 
-- Windows 10/11 x86_64；
-- Docker Desktop，启用WSL2和Linux containers；
-- Docker Buildx；
-- Python 3.11或3.12；
-- AgentRun CLI Windows版本；
-- 可访问的阿里云ACR、AgentRun和ARMS账户。
+“公网可发现”不等于“被公共目录收录”：不知道URL的人不会自动看到这些Agent。
+但当前Demo没有配置Endpoint鉴权，知道或获得URL的人可能直接访问，因此不能把
+Endpoint URL当作密钥。生产环境应增加鉴权，或改用VPC/PrivateLink和私网Endpoint。
 
-AgentRun CLI安装：
+## 实现说明
+
+- `/healthz`只检查Web进程是否存活，供AgentRun判断是否需要重启实例；
+  `/readyz`进一步检查必填环境变量，缺失配置时返回`503`。当前平台健康检查使用
+  `/healthz`，因此模型或下游短暂不可用不会造成实例反复重启。
+- policy、research和provider使用的部分SDK是同步阻塞调用。代码通过
+  `asyncio.to_thread()`把这些调用放到工作线程，避免一个较慢的模型或搜索请求
+  卡住ASGI事件循环，使健康检查和其他请求仍可被处理。
+- `a2a.<agent>.execute`是代码在A2A执行器外层创建的业务Span，用来在Trace中明确
+  标出实际执行了哪个Agent。Span只记录Agent名称、A2A方法、耗时和错误状态，
+  不记录用户提示词或医疗内容；它与阿里云探针自动生成的HTTP、LLM和工具Span
+  共同组成完整调用链。
+- 日志使用JSON结构；ARMS启用日志关联后可带`trace_id`和`span_id`。
+- 镜像以非root用户运行；可选的本地Compose配置还启用了只读根文件系统和
+  最小权限。
+- 四个镜像只安装各自Agent需要的直接依赖，可以分别构建、发布和回滚。
+- `.env.local`被Git忽略；包含密钥的Runtime YAML只在临时目录生成，部署结束后
+  自动删除。
+
+云端镜像只启用阿里云ARMS Python探针发行包。`aliyun-bootstrap`在构建期安装
+官方探针及其`aliyun-loongsuite-instrumentation-*`组件，容器通过
+`aliyun-instrument`启动，不再叠加安装另一套LoongSuite或社区
+`opentelemetry-instrument`。
+
+## 目录说明
+
+| 路径 | 用途 |
+| --- | --- |
+| `Dockerfile.policy`等四个根目录Dockerfile | ACR分别构建四个Agent镜像 |
+| `.env.example` | 可提交的空配置模板；复制为被忽略的`.env.local`后填写真实值 |
+| `docker/` | 可选的本地Docker/Compose验证配置，当前云端流程不依赖它 |
+| `requirements/` | 公共依赖、四个Agent的独立依赖和Trace导出工具依赖 |
+| `runtime/templates/` | 四个Managed AgentRuntime的YAML模板，不包含真实密钥 |
+| `runtime/ACR_AUTO_BUILD.md` | ACR个人版自动构建规则说明 |
+| `scripts/Render-Runtime.ps1` | 将`.env.local`安全渲染成临时Runtime YAML |
+| `scripts/Deploy-Runtimes.ps1` | 按叶子Agent、concierge两个阶段部署Runtime |
+| `scripts/Export-Traces.ps1` | 调用ARMS OpenAPI下载Trace |
+| `scripts/Build-Images.ps1` | 本地构建的备用脚本；当前ACR构建流程不使用 |
+| `src/agentrun_app/` | A2A服务器、四个Agent、配置、日志和业务Span实现 |
+| `tools/invoke_a2a.py` | A2A JSON-RPC测试客户端 |
+| `tools/export_arms_traces.py` | ARMS Trace查询和JSON归档工具 |
+| `tests/` | 不依赖云资源的配置和服务测试 |
+
+## 一、准备本地配置文件
+
+`.env.example`只保存变量名、默认值和占位符，可以提交到Git。真实密钥只能填写
+在被Git忽略的`.env.local`中：
 
 ```powershell
-irm https://raw.githubusercontent.com/Serverless-Devs/agentrun-cli/main/scripts/install.ps1 | iex
-agentrun --version
+Copy-Item .env.example .env.local
 ```
 
-本机`C:\msys64\mingw64\bin\ar.exe`是GNU归档工具，与AgentRun的`ar`短命令
-冲突。因此本项目所有脚本都调用完整命令`agentrun`，不要调用`ar`。
+需要填写的主要变量：
 
-如果PowerShell禁止脚本，可以在当前进程中临时放开：
+| 变量 | 何时填写 | 内容 |
+| --- | --- | --- |
+| `DEEPSEEK_API_KEY` | 部署四个Runtime前 | DeepSeek API Key |
+| `ARMS_LICENSE_KEY` | 开启ARMS Trace前 | ARMS Python应用接入页面提供的LicenseKey |
+| `AGENTRUN_*_IMAGE` | ACR镜像构建完成后 | 四个镜像的完整ACR地址和版本Tag |
+| `POLICY_A2A_URL`等三个叶子URL | 三个叶子Endpoint创建后 | 到`/invocations`为止的A2A基础地址 |
+| `CONCIERGE_A2A_URL` | concierge Endpoint创建后 | concierge公开基础地址；用于修正Agent Card和测试 |
+| `ALIBABA_CLOUD_ACCESS_KEY_ID/SECRET` | 下载Trace时 | 建议使用只读RAM用户的凭据 |
 
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-```
+`DEEPSEEK_BASE_URL`、发现超时和重试次数已有默认值，通常不需要修改。
+AgentRun CLI使用的账号、地域和部署凭据保存在CLI Profile中，不写进Runtime YAML。
 
-或者每次使用：
+## 二、使用ACR构建四个镜像
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Start-Local.ps1 -Build
-```
+当前采用ACR个人版绑定GitHub构建，不需要在Windows上用Docker构建或手动push。
+需要重新构建时，在ACR构建页面创建四条规则：
 
-## 二、本地开发
+| 分支 | 构建上下文 | Dockerfile | 镜像版本示例 |
+| --- | --- | --- | --- |
+| `main` | `/` | `Dockerfile.policy` | `policy-1.0.0` |
+| `main` | `/` | `Dockerfile.research` | `research-1.0.0` |
+| `main` | `/` | `Dockerfile.provider` | `provider-1.0.0` |
+| `main` | `/` | `Dockerfile.concierge` | `concierge-1.0.1` |
 
-```powershell
-cd "D:\deskcopy\agent audit\aliyun-dev"
-```
+构建上下文是`/`，因为Git仓库根目录就是本项目根目录，Dockerfile需要读取同一
+目录下的`src/`、`requirements/`和`data/`。创建规则后可以单击“立即构建”。
 
-仓库已经生成被Git忽略的`.env.local`模板。填写其中的`DEEPSEEK_API_KEY`，然后：
+匹配`main`的规则会在每次提交到`main`时触发，并不会判断某个Agent的代码是否
+实际发生变化。当前四条规则已经删除，普通README提交不会触发镜像构建；需要
+发布新镜像时再临时创建规则即可。
 
-```powershell
-.\scripts\Start-Local.ps1 -Build
-```
+## 三、配置AgentRun CLI
 
-本地开发不会启动ARMS探针，避免污染云端Trace；云端镜像仍然保留ARMS启动命令。
-
-检查存活和Agent Card：
-
-```powershell
-curl.exe http://localhost:19090/healthz
-curl.exe http://localhost:19090/readyz
-curl.exe http://localhost:19090/.well-known/agent-card.json
-
-curl.exe http://localhost:19091/.well-known/agent-card.json
-curl.exe http://localhost:19092/.well-known/agent-card.json
-curl.exe http://localhost:19093/.well-known/agent-card.json
-```
-
-调用concierge：
-
-```powershell
-python .\tools\invoke_a2a.py `
-  http://localhost:19093 `
-  "说明糖尿病症状、保险覆盖，并找Austin附近的医生。"
-```
-
-停止：
-
-```powershell
-.\scripts\Start-Local.ps1 -Down
-```
-
-## 三、构建并推送四个Linux/AMD64镜像
-
-本项目镜像使用阿里云官方示例同款Python 3.11.14基础镜像。ARMS当前兼容约束为Python 3.8～3.12、
-`protobuf>=3.20,<6`、`opentelemetry-api<=1.35`。
-
-ARMS探针不是AgentRun专属且不可下载的黑盒：Dockerfile中的
-`pip install aliyun-bootstrap`和`aliyun-bootstrap -a install`会在构建期下载
-官方探针及其LoongSuite组件。运行时统一通过`aliyun-instrument`启动，不需要
-另外安装一个名为LoongSuite的并行探针。
-
-先登录ACR，再填写`.env.local`中的`AGENTRUN_IMAGE_REGISTRY`、
-`AGENTRUN_IMAGE_TAG`和四个`AGENTRUN_*_IMAGE`。构建四个本地镜像：
-
-```powershell
-.\scripts\Build-Images.ps1
-```
-
-推送四个镜像到ACR：
-
-```powershell
-.\scripts\Build-Images.ps1 -Push
-```
-
-也可单独构建，例如`.\scripts\Build-Images.ps1 -Agent Policy`。
-
-如果使用ACR个人版绑定GitHub自动构建，不需要执行本地构建和push。按照
-[`runtime/ACR_AUTO_BUILD.md`](runtime/ACR_AUTO_BUILD.md)配置四条规则；GitHub
-分支更新后，ACR会使用本目录中的四个`Dockerfile.*`分别生成四个镜像版本。
-
-脚本为policy、research、provider、concierge分别构建镜像，强制
-`--platform linux/amd64`，并在本地构建后检查镜像平台。
-
-镜像构建上下文就是`aliyun-dev`目录，代码、依赖、Dockerfile和演示数据均已
-自包含，适合由ACR从GitHub检出后直接构建。
-
-## 四、配置AgentRun CLI
-
-使用拥有最小必要权限的RAM用户或角色。首次配置示例：
+安装AgentRun CLI后，使用拥有最小必要权限的RAM用户或角色配置Profile：
 
 ```powershell
 agentrun config set access_key_id YOUR_ACCESS_KEY_ID
@@ -210,80 +178,54 @@ agentrun config set account_id YOUR_ACCOUNT_ID
 agentrun config set region cn-hangzhou
 ```
 
-需要完成AgentRun官方要求的服务角色授权，并为调用身份授予
+还需要完成AgentRun服务角色授权，并为调用身份授予
 `AliyunAgentRunFullAccess`或等价的最小自定义权限。
 
-## 五、部署三个叶子Runtime
+## 四、部署三个叶子Runtime
 
-填写`.env.local`。构建和部署脚本会自动加载它；当前PowerShell进程中已设置的
-同名变量优先于文件值。不要把真实值写入Runtime模板：
+先部署policy、research和provider，因为concierge部署时需要这三个Runtime的
+公网A2A基础地址。
 
-```dotenv
-AGENTRUN_POLICY_IMAGE=registry.cn-hangzhou.aliyuncs.com/ns/a2a-policy-agent:arms-v1
-AGENTRUN_RESEARCH_IMAGE=registry.cn-hangzhou.aliyuncs.com/ns/a2a-research-agent:arms-v1
-AGENTRUN_PROVIDER_IMAGE=registry.cn-hangzhou.aliyuncs.com/ns/a2a-provider-agent:arms-v1
-DEEPSEEK_API_KEY=...
-ARMS_LICENSE_KEY=...
-```
-
-只验证清单：
+先检查渲染结果，不创建云资源：
 
 ```powershell
 .\scripts\Deploy-Runtimes.ps1 -Phase Leaves -RenderOnly
 ```
 
-正式创建/更新：
+正式创建或更新：
 
 ```powershell
 .\scripts\Deploy-Runtimes.ps1 -Phase Leaves
 ```
 
-脚本执行：临时渲染→`agentrun runtime render`→`agentrun runtime apply`→删除
-临时敏感文件。
+脚本执行“临时渲染 → `agentrun runtime render` → `agentrun runtime apply` →
+删除临时敏感文件”。等待三个Runtime变为`READY`、Endpoint变为`ACTIVE`。
 
-## 六、取得A2A地址并部署concierge
+## 五、配置发现地址并部署concierge
 
-三个叶子Runtime变为`READY`、Endpoint变为`ACTIVE`后，在AgentRun控制台复制
-各自A2A基础地址。必须验证：
+在AgentRun控制台复制三个叶子Endpoint的A2A基础地址，并填入`.env.local`：
 
-```text
-<POLICY_A2A_URL>/.well-known/agent-card.json
-<RESEARCH_A2A_URL>/.well-known/agent-card.json
-<PROVIDER_A2A_URL>/.well-known/agent-card.json
+```dotenv
+POLICY_A2A_URL=https://.../agent-runtimes/a2a-policy-agent/endpoints/default/invocations
+RESEARCH_A2A_URL=https://.../agent-runtimes/a2a-research-agent/endpoints/default/invocations
+PROVIDER_A2A_URL=https://.../agent-runtimes/a2a-provider-agent/endpoints/default/invocations
 ```
 
-设置基础地址，不要设置到JSON文件本身：
+分别验证Agent Card后部署concierge：
 
 ```powershell
-$env:POLICY_A2A_URL = "https://..."
-$env:RESEARCH_A2A_URL = "https://..."
-$env:PROVIDER_A2A_URL = "https://..."
+curl.exe "<POLICY_A2A_URL>/.well-known/agent-card.json"
+curl.exe "<RESEARCH_A2A_URL>/.well-known/agent-card.json"
+curl.exe "<PROVIDER_A2A_URL>/.well-known/agent-card.json"
 
 .\scripts\Deploy-Runtimes.ps1 -Phase Concierge
 ```
 
-如果AgentRun入口没有正确传递`X-Forwarded-Host/Proto/Prefix`，在对应模板的
-`spec.env`中显式增加：
+## 六、开启并验证ARMS Trace
 
-```yaml
-PUBLIC_BASE_URL: "https://实际A2A基础地址"
-```
-
-然后重新apply生成新版本。
-
-## 七、开启ARMS Trace
-
-AgentRun CLI当前Runtime YAML没有暴露控制台的`Tracing Analysis`开关。首次部署
-后，需要在四个Runtime的高级配置中开启该开关。
-
-每个Runtime已经配置不同的应用名：
-
-```text
-a2a-policy-agent
-a2a-research-agent
-a2a-provider-agent
-a2a-concierge-agent
-```
+AgentRun CLI的Runtime YAML目前没有暴露控制台的`Tracing Analysis`开关。首次
+部署后，在四个Runtime的高级配置中开启该开关。四个ARMS应用名分别对应四个
+Runtime名称。
 
 容器日志应出现`ARMS Agent started successfully`。调用concierge后，在：
 
@@ -294,16 +236,18 @@ AgentRun → Agent详情 → Observability → Tracing Analysis
 验证同一个Trace ID中包含：
 
 ```text
-concierge → policy/research/provider → DeepSeek
+a2a.concierge.execute
+├── a2a.policy.execute
+├── a2a.research.execute
+└── a2a.provider.execute
 ```
 
-最低通过标准：4个A2A业务Span和跨Runtime HTTP Span完整。OpenAI/LangChain
-应出现LLM语义Span；Anthropic兼容端点和BeeAI若只显示HTTP Span，记录为探针
-覆盖差异，不判定AgentRun部署失败。
+同时应看到跨Runtime HTTP Span以及探针能够识别的LLM、Chain和Tool Span。
+冷启动会增加首次请求总耗时，但不影响同一Trace中Agent调用关系的分析。
 
-## 八、下载ARMS Trace到Windows
+## 七、下载ARMS Trace到Windows
 
-为本地工具创建独立环境：
+Trace导出工具需要独立Python环境：
 
 ```powershell
 py -3.11 -m venv .venv-trace
@@ -311,53 +255,32 @@ py -3.11 -m venv .venv-trace
 pip install -r .\requirements\trace-export.txt
 ```
 
-设置只读RAM凭据：
+按已知Trace ID下载：
 
 ```powershell
-$env:ALIBABA_CLOUD_ACCESS_KEY_ID = "..."
-$env:ALIBABA_CLOUD_ACCESS_KEY_SECRET = "..."
-$env:AGENTRUN_REGION = "cn-hangzhou"
+.\scripts\Export-Traces.ps1 `
+  -TraceId e500ef9f554865297d2a3e3f2df264c6 `
+  -Minutes 180
 ```
 
-下载最近60分钟的concierge Trace：
+输出保存在被Git忽略的`trace-export/`目录。工具调用`SearchTracesByPage`或
+`SearchTraces`定位Trace，再通过`GetTrace`分页保存完整Span JSON；它不会自动
+把Trace导入本地Jaeger。
 
-```powershell
-.\scripts\Export-Traces.ps1 -ServiceName a2a-concierge-agent -Minutes 60
-```
-
-按已知 Trace ID 直接下载：
-
-```powershell
-.\scripts\Export-Traces.ps1 -TraceId e500ef9f554865297d2a3e3f2df264c6 -Minutes 180
-```
-
-输出：
-
-```text
-trace-export/
-├── index.json
-├── <trace-id-1>.json
-└── <trace-id-2>.json
-```
-
-工具先调用`SearchTracesByPage`（SDK不提供时回退`SearchTraces`），再使用
-`GetTrace`分页保存完整Span响应。它不会把Trace自动导入本地Jaeger。
-
-## 九、安全注意事项
+## 八、安全注意事项
 
 - 不提交`.env.local`、渲染后的Runtime YAML或Trace导出目录。
 - 不在Dockerfile、镜像层或命令行参数中写密钥。
-- ARMS Trace可能包含模型请求/响应；涉及医疗信息时先确认采集和脱敏策略。
-- `tools/export_arms_traces.py`不打印凭据，但导出的Span标签仍可能含敏感数据。
-- POC使用公网Endpoint；生产环境应评估VPC、私网Endpoint、安全组和最小权限。
+- 当前公网Endpoint适合Demo验证，不应直接作为生产鉴权方案。
+- ARMS Trace可能包含模型请求/响应；涉及医疗信息时应确认采样和脱敏策略。
 - `InMemoryTaskStore`适合当前无状态验证；需要长任务恢复时应替换成外部持久化存储。
 
-## 十、已知平台步骤
+## 九、控制台步骤
 
-以下步骤依赖你的阿里云账户，无法由仓库静态完成：
+以下步骤依赖阿里云账号，需要在控制台完成：
 
-1. 创建/授权AgentRun服务角色。
-2. 创建ACR仓库并登录。
+1. 创建或授权AgentRun服务角色。
+2. 创建ACR仓库；需要发版时创建构建规则并生成四个镜像。
 3. 获取ARMS LicenseKey。
-4. 在控制台开启四个Runtime的Tracing Analysis。
-5. 确认平台生成的A2A Endpoint路径和鉴权策略。
+4. 在四个Runtime中开启`Tracing Analysis`。
+5. 根据使用范围配置Endpoint鉴权、VPC或PrivateLink。
