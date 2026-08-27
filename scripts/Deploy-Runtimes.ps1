@@ -16,12 +16,27 @@ try {
     $files = @(& $renderScript -Phase $Phase -OutputDirectory $temporaryDirectory)
     foreach ($file in $files) {
         Write-Host "Validating $file"
-        & $cli runtime render -f $file
+        # `runtime render` prints the fully rendered environment, including
+        # secret values. Validation output is therefore intentionally hidden.
+        & $cli runtime render -f $file *> $null
         Assert-LastExitCode "agentrun runtime render"
+        Write-Host "Validation passed (rendered values hidden)."
         if (-not $RenderOnly) {
             Write-Host "Applying $file"
-            & $cli runtime apply -f $file --wait --timeout $Timeout
-            Assert-LastExitCode "agentrun runtime apply"
+            $applyOutput = @(& $cli runtime apply -f $file --wait --timeout $Timeout 2>&1)
+            $applyExitCode = $LASTEXITCODE
+            $safeOutput = $applyOutput -join [Environment]::NewLine
+            foreach ($secret in @($env:DEEPSEEK_API_KEY, $env:ARMS_LICENSE_KEY)) {
+                if (-not [string]::IsNullOrWhiteSpace($secret)) {
+                    $safeOutput = $safeOutput.Replace($secret, "***REDACTED***")
+                }
+            }
+            if (-not [string]::IsNullOrWhiteSpace($safeOutput)) {
+                Write-Host $safeOutput
+            }
+            if ($applyExitCode -ne 0) {
+                throw "agentrun runtime apply failed with exit code $applyExitCode."
+            }
         }
     }
 }
@@ -30,4 +45,3 @@ finally {
         Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force
     }
 }
-
