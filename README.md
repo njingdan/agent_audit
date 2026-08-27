@@ -92,7 +92,7 @@ aliyun-dev/
 - Windows 10/11 x86_64；
 - Docker Desktop，启用WSL2和Linux containers；
 - Docker Buildx；
-- Python 3.12；
+- Python 3.11或3.12；
 - AgentRun CLI Windows版本；
 - 可访问的阿里云ACR、AgentRun和ARMS账户。
 
@@ -160,7 +160,7 @@ python .\tools\invoke_a2a.py `
 
 ## 三、构建并推送四个Linux/AMD64镜像
 
-本项目镜像固定使用Python 3.12。ARMS当前兼容约束为Python 3.8～3.12、
+本项目镜像使用阿里云官方示例同款Python 3.11.14基础镜像。ARMS当前兼容约束为Python 3.8～3.12、
 `protobuf>=3.20,<6`、`opentelemetry-api<=1.35`。
 
 ARMS探针不是AgentRun专属且不可下载的黑盒：Dockerfile中的

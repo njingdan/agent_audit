@@ -1,11 +1,12 @@
-# syntax=docker/dockerfile:1.7
-FROM python:3.12-slim
+FROM mirrors-ssl.aliyuncs.com/python:3.11.14-slim
 
 ARG APP_UID=10001
 ARG APP_GID=10001
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONPATH=/app/src \
     DATA_DIR=/app/data \
     AGENT_BIND_HOST=0.0.0.0 \
@@ -17,6 +18,9 @@ WORKDIR /app
 
 RUN groupadd --gid "${APP_GID}" appuser \
     && useradd --uid "${APP_UID}" --gid "${APP_GID}" --create-home appuser
+
+RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
+    && pip config set install.trusted-host mirrors.aliyun.com
 
 COPY requirements/ /tmp/requirements/
 
