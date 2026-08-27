@@ -1,0 +1,50 @@
+apiVersion: agentrun/v1
+kind: AgentRuntime
+metadata:
+  name: a2a-concierge-agent
+  description: Healthcare concierge A2A orchestration agent with ARMS tracing
+spec:
+  container:
+    image: __CONCIERGE_IMAGE__
+    imageRegistryType: ACR
+    port: 9000
+  cpu: 2
+  memory: 4096
+  port: 9000
+  protocol:
+    type: HTTP
+    settings:
+      - type: A2A
+        name: a2a-jsonrpc
+        path: /
+        method: POST
+        requestContentType: application/json
+        responseContentType: application/json
+        a2aAgentCardUrl: /.well-known/agent-card.json
+  network:
+    mode: PUBLIC
+  healthCheck:
+    httpGetUrl: /healthz
+    initialDelaySeconds: 20
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+    successThreshold: 1
+  env:
+    AGENT_NAME: concierge
+    AGENT_BIND_HOST: 0.0.0.0
+    AGENT_PORT: "9000"
+    LOG_LEVEL: INFO
+    DEEPSEEK_API_KEY: __DEEPSEEK_API_KEY__
+    DEEPSEEK_BASE_URL: __DEEPSEEK_BASE_URL__
+    POLICY_A2A_URL: __POLICY_A2A_URL__
+    RESEARCH_A2A_URL: __RESEARCH_A2A_URL__
+    PROVIDER_A2A_URL: __PROVIDER_A2A_URL__
+    ARMS_APP_NAME: a2a-concierge-agent
+    ARMS_REGION_ID: __REGION__
+    ARMS_LICENSE_KEY: __ARMS_LICENSE_KEY__
+  endpoints:
+    - name: default
+      description: Concierge A2A production endpoint
+      targetVersion: LATEST
+      disablePublicNetworkAccess: false

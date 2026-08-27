@@ -1,0 +1,50 @@
+[
+  {
+    "id": "DOC001",
+    "name": "Dr. Sarah Mitchell",
+    "specialty": "Cardiology",
+    "address": {
+      "street": "1247 Medical Center Drive",
+      "city": "Atlanta",
+      "state": "GA",
+      "zip_code": "30309"
+    },
+    "phone": "(404) 555-2847",
+    "years_experience": 15,
+    "board_certified": true,
+    "accepts_new_patients": true,
+    "insurance_accepted": ["Blue Cross Blue Shield", "Aetna", "Cigna", "UnitedHealth"]
+  },
+  {
+    "id": "DOC009",
+    "name": "Dr. Amanda Foster",
+    "specialty": "Psychiatry",
+    "address": {
+      "street": "1523 Mental Health Boulevard, Suite 401",
+      "city": "Boston",
+      "state": "MA",
+      "zip_code": "02115"
+    },
+    "phone": "(617) 555-7412",
+    "years_experience": 9,
+    "board_certified": true,
+    "accepts_new_patients": true,
+    "insurance_accepted": ["Anthem Blue Cross Blue Shield", "Harvard Pilgrim", "Tufts Health Plan"]
+  },
+  {
+    "id": "DOC011",
+    "name": "Dr. Jessica Coffey",
+    "specialty": "Psychiatry",
+    "address": {
+      "street": "1201 West 38th Street, Suite 210",
+      "city": "Austin",
+      "state": "TX",
+      "zip_code": "78705"
+    },
+    "phone": "(512) 555-0199",
+    "years_experience": 13,
+    "board_certified": true,
+    "accepts_new_patients": true,
+    "insurance_accepted": ["Blue Cross Blue Shield", "UnitedHealth", "Aetna", "Humana"]
+  }
+]

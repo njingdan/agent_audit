@@ -1,0 +1,4 @@
+-r common.txt
+anthropic==0.125.0
+duckduckgo-search==8.1.1
+

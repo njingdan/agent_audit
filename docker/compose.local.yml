@@ -1,0 +1,93 @@
+name: agentrun-a2a-local
+
+x-agent-common: &agent-common
+  # Local development deliberately bypasses ARMS. Cloud AgentRun uses the
+  # Dockerfile CMD and therefore starts through aliyun-instrument.
+  command: ["python", "-m", "agentrun_app"]
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp:size=128m,mode=1777
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  environment: &common-env
+    AGENT_BIND_HOST: "0.0.0.0"
+    AGENT_PORT: "9000"
+    DATA_DIR: /app/data
+    LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+    DEEPSEEK_ANTHROPIC_BASE_URL: ${DEEPSEEK_ANTHROPIC_BASE_URL:-https://api.deepseek.com/anthropic}
+
+services:
+  policy:
+    <<: *agent-common
+    image: agentrun-a2a-policy:local
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        AGENT_NAME: policy
+    ports:
+      - "19090:9000"
+    environment:
+      <<: *common-env
+      AGENT_NAME: policy
+      PUBLIC_BASE_URL: http://localhost:19090
+
+  research:
+    <<: *agent-common
+    image: agentrun-a2a-research:local
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        AGENT_NAME: research
+    ports:
+      - "19091:9000"
+    environment:
+      <<: *common-env
+      AGENT_NAME: research
+      PUBLIC_BASE_URL: http://localhost:19091
+
+  provider:
+    <<: *agent-common
+    image: agentrun-a2a-provider:local
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        AGENT_NAME: provider
+    ports:
+      - "19092:9000"
+    environment:
+      <<: *common-env
+      AGENT_NAME: provider
+      PUBLIC_BASE_URL: http://localhost:19092
+
+  concierge:
+    <<: *agent-common
+    image: agentrun-a2a-concierge:local
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        AGENT_NAME: concierge
+    ports:
+      - "19093:9000"
+    environment:
+      <<: *common-env
+      AGENT_NAME: concierge
+      PUBLIC_BASE_URL: http://localhost:19093
+      POLICY_A2A_URL: http://policy:9000
+      RESEARCH_A2A_URL: http://research:9000
+      PROVIDER_A2A_URL: http://provider:9000
+    depends_on:
+      policy:
+        condition: service_healthy
+      research:
+        condition: service_healthy
+      provider:
+        condition: service_healthy

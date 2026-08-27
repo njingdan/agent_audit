@@ -1,0 +1,9 @@
+.env
+.env.local
+runtime/generated/
+trace-export/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+

@@ -1,0 +1,10 @@
+**
+!src/
+!src/**
+!requirements/
+!requirements/**
+!data/
+!data/**
+
+**/__pycache__/
+**/*.py[cod]

@@ -1,0 +1,10 @@
+.env
+.env.*
+runtime/generated/
+trace-export/
+tests/
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.venv/
+

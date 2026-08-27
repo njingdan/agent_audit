@@ -1,0 +1,3 @@
+-r common.txt
+beeai-framework[a2a]==0.1.83
+
