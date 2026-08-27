@@ -1,5 +1,6 @@
 param(
     [string]$ServiceName = "",
+    [string[]]$TraceId = @(),
     [int]$Minutes = 60,
     [string]$OutputDirectory = ""
 )
@@ -13,20 +14,36 @@ if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
     $OutputDirectory = Join-Path $projectRoot "trace-export"
 }
 
-$python = Get-Command py -ErrorAction SilentlyContinue
-if ($null -ne $python) {
-    $arguments = @("-3.12", $tool, "--minutes", $Minutes, "--output", $OutputDirectory)
-    if (-not [string]::IsNullOrWhiteSpace($ServiceName)) {
-        $arguments += @("--service-name", $ServiceName)
-    }
-    & $python.Source @arguments
+$venvPython = Join-Path $projectRoot ".venv-trace\Scripts\python.exe"
+$python = Get-Command python -ErrorAction SilentlyContinue
+$pythonLauncher = Get-Command py -ErrorAction SilentlyContinue
+
+if (Test-Path -LiteralPath $venvPython) {
+    $executable = $venvPython
+    $arguments = @($tool, "--minutes", $Minutes, "--output", $OutputDirectory)
+}
+elseif ($null -ne $python -and -not [string]::IsNullOrWhiteSpace($env:VIRTUAL_ENV)) {
+    $executable = $python.Source
+    $arguments = @($tool, "--minutes", $Minutes, "--output", $OutputDirectory)
+}
+elseif ($null -ne $pythonLauncher) {
+    $executable = $pythonLauncher.Source
+    $arguments = @("-3.11", $tool, "--minutes", $Minutes, "--output", $OutputDirectory)
+}
+elseif ($null -ne $python) {
+    $executable = $python.Source
+    $arguments = @($tool, "--minutes", $Minutes, "--output", $OutputDirectory)
 }
 else {
-    $arguments = @($tool, "--minutes", $Minutes, "--output", $OutputDirectory)
-    if (-not [string]::IsNullOrWhiteSpace($ServiceName)) {
-        $arguments += @("--service-name", $ServiceName)
-    }
-    python @arguments
+    throw "Python 3.11 is required to export ARMS traces."
 }
+
+if (-not [string]::IsNullOrWhiteSpace($ServiceName)) {
+    $arguments += @("--service-name", $ServiceName)
+}
+foreach ($id in $TraceId) {
+    $arguments += @("--trace-id", $id)
+}
+& $executable @arguments
 
 if ($LASTEXITCODE -ne 0) { throw "ARMS trace export failed with exit code $LASTEXITCODE" }

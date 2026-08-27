@@ -2,8 +2,9 @@
 .env.local
 runtime/generated/
 trace-export/
+trace/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
-
+.venv-trace/

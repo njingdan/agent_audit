@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -164,6 +165,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Export ARMS traces to local JSON")
     parser.add_argument("--region", default=os.getenv("AGENTRUN_REGION", "cn-hangzhou"))
     parser.add_argument("--service-name", help="ARMS application/service name")
+    parser.add_argument(
+        "--trace-id",
+        action="append",
+        help="Download an exact Trace ID; repeat to download multiple traces",
+    )
     parser.add_argument("--minutes", type=int, default=60, help="Lookback window")
     parser.add_argument("--start-ms", type=int, help="Explicit start epoch milliseconds")
     parser.add_argument("--end-ms", type=int, help="Explicit end epoch milliseconds")
@@ -186,15 +192,21 @@ def main() -> int:
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     client = build_client(args.region, args.endpoint)
-    trace_ids = search_trace_ids(
-        client,
-        region=args.region,
-        start_ms=start_ms,
-        end_ms=end_ms,
-        service_name=args.service_name,
-        max_pages=args.max_pages,
-        page_size=args.page_size,
-    )
+    if args.trace_id:
+        invalid = [value for value in args.trace_id if not re.fullmatch(r"[0-9a-fA-F]{32}", value)]
+        if invalid:
+            raise ValueError("--trace-id must be a 32-character hexadecimal value")
+        trace_ids = list(dict.fromkeys(value.lower() for value in args.trace_id))
+    else:
+        trace_ids = search_trace_ids(
+            client,
+            region=args.region,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            service_name=args.service_name,
+            max_pages=args.max_pages,
+            page_size=args.page_size,
+        )
 
     index: list[dict[str, Any]] = []
     for position, trace_id in enumerate(trace_ids, 1):
@@ -236,4 +248,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

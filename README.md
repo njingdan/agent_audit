@@ -300,7 +300,7 @@ concierge → policy/research/provider → DeepSeek
 为本地工具创建独立环境：
 
 ```powershell
-py -3.12 -m venv .venv-trace
+py -3.11 -m venv .venv-trace
 .\.venv-trace\Scripts\Activate.ps1
 pip install -r .\requirements\trace-export.txt
 ```
@@ -317,6 +317,12 @@ $env:AGENTRUN_REGION = "cn-hangzhou"
 
 ```powershell
 .\scripts\Export-Traces.ps1 -ServiceName a2a-concierge-agent -Minutes 60
+```
+
+按已知 Trace ID 直接下载：
+
+```powershell
+.\scripts\Export-Traces.ps1 -TraceId e500ef9f554865297d2a3e3f2df264c6 -Minutes 180
 ```
 
 输出：
