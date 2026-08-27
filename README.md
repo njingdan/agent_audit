@@ -73,10 +73,11 @@ concierge自动按Runtime名称搜索其他Agent；三个叶子地址必须通�
 `POLICY_A2A_URL`、`RESEARCH_A2A_URL`和`PROVIDER_A2A_URL`明确提供给concierge。
 
 Agent Card中的`url`必须是外部调用方真正能够访问的完整地址。应用优先使用
-AgentRun反向代理传入的`X-Forwarded-Proto`、`X-Forwarded-Host`和
-`X-Forwarded-Prefix`动态生成该地址；如果代理头不完整，则通过
-`PUBLIC_BASE_URL`明确覆盖。否则Agent Card可能错误地返回容器内部地址或缺少
-`/agent-runtimes/.../endpoints/default/invocations`路径，后续A2A调用就会失败。
+`PUBLIC_BASE_URL`；未配置时，才根据AgentRun反向代理传入的
+`X-Forwarded-Proto`、`X-Forwarded-Host`和`X-Forwarded-Prefix`动态生成
+该地址。两种方式都无法得到正确公网地址时，Agent Card可能错误地返回容器内部
+地址或缺少`/agent-runtimes/.../endpoints/default/invocations`路径，后续A2A
+调用就会失败。
 
 “公网可发现”不等于“被公共目录收录”：不知道URL的人不会自动看到这些Agent。
 但当前Demo没有配置Endpoint鉴权，知道或获得URL的人可能直接访问，因此不能把
