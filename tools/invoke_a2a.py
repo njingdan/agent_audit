@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import uuid
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 
 def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+
     parser = argparse.ArgumentParser(description="Invoke an A2A agent")
     parser.add_argument("url", help="A2A base URL")
     parser.add_argument("message", help="User message")
@@ -46,4 +50,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

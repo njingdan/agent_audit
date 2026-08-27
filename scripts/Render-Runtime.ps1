@@ -40,11 +40,24 @@ function Render-One {
     Write-Output $outputPath
 }
 
+function Get-OptionalEnvironmentLine {
+    param(
+        [Parameter(Mandatory = $true)][string]$EnvironmentName,
+        [Parameter(Mandatory = $true)][string]$YamlName
+    )
+    $value = [Environment]::GetEnvironmentVariable($EnvironmentName)
+    if ([string]::IsNullOrWhiteSpace($value)) { return "" }
+    return "    ${YamlName}: $(ConvertTo-YamlQuotedString $value)"
+}
+
 if ($Phase -in @("Leaves", "All")) {
     $leafValues = @{
         "__POLICY_IMAGE__" = ConvertTo-YamlQuotedString (Get-RequiredEnvironmentValue "AGENTRUN_POLICY_IMAGE")
         "__RESEARCH_IMAGE__" = ConvertTo-YamlQuotedString (Get-RequiredEnvironmentValue "AGENTRUN_RESEARCH_IMAGE")
         "__PROVIDER_IMAGE__" = ConvertTo-YamlQuotedString (Get-RequiredEnvironmentValue "AGENTRUN_PROVIDER_IMAGE")
+        "__POLICY_PUBLIC_BASE_URL_ENV__" = Get-OptionalEnvironmentLine "POLICY_A2A_URL" "PUBLIC_BASE_URL"
+        "__RESEARCH_PUBLIC_BASE_URL_ENV__" = Get-OptionalEnvironmentLine "RESEARCH_A2A_URL" "PUBLIC_BASE_URL"
+        "__PROVIDER_PUBLIC_BASE_URL_ENV__" = Get-OptionalEnvironmentLine "PROVIDER_A2A_URL" "PUBLIC_BASE_URL"
     }
     Render-One "leaves.yaml.tmpl" "leaves.yaml" $leafValues
 }
@@ -55,6 +68,7 @@ if ($Phase -in @("Concierge", "All")) {
         "__POLICY_A2A_URL__" = ConvertTo-YamlQuotedString (Get-RequiredEnvironmentValue "POLICY_A2A_URL")
         "__RESEARCH_A2A_URL__" = ConvertTo-YamlQuotedString (Get-RequiredEnvironmentValue "RESEARCH_A2A_URL")
         "__PROVIDER_A2A_URL__" = ConvertTo-YamlQuotedString (Get-RequiredEnvironmentValue "PROVIDER_A2A_URL")
+        "__CONCIERGE_PUBLIC_BASE_URL_ENV__" = Get-OptionalEnvironmentLine "CONCIERGE_A2A_URL" "PUBLIC_BASE_URL"
     }
     Render-One "concierge.yaml.tmpl" "concierge.yaml" $conciergeValues
 }

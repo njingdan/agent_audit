@@ -40,9 +40,13 @@ spec:
     POLICY_A2A_URL: __POLICY_A2A_URL__
     RESEARCH_A2A_URL: __RESEARCH_A2A_URL__
     PROVIDER_A2A_URL: __PROVIDER_A2A_URL__
+    A2A_DISCOVERY_TIMEOUT_SECONDS: "45"
+    A2A_DISCOVERY_MAX_ATTEMPTS: "3"
+    A2A_DISCOVERY_BACKOFF_SECONDS: "2"
     ARMS_APP_NAME: a2a-concierge-agent
     ARMS_REGION_ID: __REGION__
     ARMS_LICENSE_KEY: __ARMS_LICENSE_KEY__
+__CONCIERGE_PUBLIC_BASE_URL_ENV__
   endpoints:
     - name: default
       description: Concierge A2A production endpoint

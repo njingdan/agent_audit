@@ -47,7 +47,22 @@ class SettingsTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 Settings.from_env()
 
+    def test_discovery_settings_have_cold_start_safe_defaults(self) -> None:
+        with patch.dict(os.environ, {"AGENT_NAME": "concierge"}, clear=True):
+            settings = Settings.from_env()
+        self.assertEqual(settings.a2a_discovery_timeout_seconds, 45.0)
+        self.assertEqual(settings.a2a_discovery_max_attempts, 3)
+        self.assertEqual(settings.a2a_discovery_backoff_seconds, 2.0)
+
+    def test_non_positive_discovery_timeout_is_rejected(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"A2A_DISCOVERY_TIMEOUT_SECONDS": "0"},
+            clear=True,
+        ):
+            with self.assertRaises(ValueError):
+                Settings.from_env()
+
 
 if __name__ == "__main__":
     unittest.main()
-

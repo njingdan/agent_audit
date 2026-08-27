@@ -29,6 +29,16 @@ def _env_int(name: str, default: int) -> int:
     return value
 
 
+def _env_positive_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    value = float(raw)
+    if value <= 0:
+        raise ValueError(f"{name} must be greater than zero")
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     agent_name: str
@@ -43,6 +53,9 @@ class Settings:
     policy_a2a_url: str | None
     research_a2a_url: str | None
     provider_a2a_url: str | None
+    a2a_discovery_timeout_seconds: float
+    a2a_discovery_max_attempts: int
+    a2a_discovery_backoff_seconds: float
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -67,6 +80,13 @@ class Settings:
             policy_a2a_url=_clean_base_url(os.getenv("POLICY_A2A_URL")),
             research_a2a_url=_clean_base_url(os.getenv("RESEARCH_A2A_URL")),
             provider_a2a_url=_clean_base_url(os.getenv("PROVIDER_A2A_URL")),
+            a2a_discovery_timeout_seconds=_env_positive_float(
+                "A2A_DISCOVERY_TIMEOUT_SECONDS", 45.0
+            ),
+            a2a_discovery_max_attempts=_env_int("A2A_DISCOVERY_MAX_ATTEMPTS", 3),
+            a2a_discovery_backoff_seconds=_env_positive_float(
+                "A2A_DISCOVERY_BACKOFF_SECONDS", 2.0
+            ),
         )
 
     def missing_required_environment(self) -> list[str]:
@@ -82,4 +102,3 @@ class Settings:
                 if not value:
                     missing.append(name)
         return missing
-

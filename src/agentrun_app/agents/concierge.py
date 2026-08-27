@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
+import httpx
+from a2a.client import A2ACardResolver
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.types import AgentCapabilities, AgentCard, AgentSkill
@@ -36,6 +38,42 @@ class ConciergeService:
     def initialized(self) -> bool:
         return self._agent is not None
 
+    async def _load_remote_agent_card(
+        self,
+        http_client: httpx.AsyncClient,
+        dependency_name: str,
+        url: str,
+    ) -> AgentCard:
+        last_error: Exception | None = None
+        for attempt in range(1, self.settings.a2a_discovery_max_attempts + 1):
+            try:
+                card = await A2ACardResolver(http_client, url).get_agent_card()
+                LOGGER.info(
+                    "Loaded downstream Agent Card dependency=%s attempt=%d",
+                    dependency_name,
+                    attempt,
+                )
+                return card
+            except Exception as exc:
+                last_error = exc
+                LOGGER.warning(
+                    "Failed to load downstream Agent Card dependency=%s attempt=%d/%d: %s",
+                    dependency_name,
+                    attempt,
+                    self.settings.a2a_discovery_max_attempts,
+                    exc,
+                )
+                if attempt < self.settings.a2a_discovery_max_attempts:
+                    await asyncio.sleep(
+                        self.settings.a2a_discovery_backoff_seconds * (2 ** (attempt - 1))
+                    )
+
+        raise RuntimeError(
+            "Unable to load downstream Agent Card "
+            f"dependency={dependency_name} after "
+            f"{self.settings.a2a_discovery_max_attempts} attempts"
+        ) from last_error
+
     async def _get_agent(self) -> RequirementAgent:
         if self._agent is not None:
             return self._agent
@@ -46,13 +84,29 @@ class ConciergeService:
             if missing:
                 raise RuntimeError(f"Missing required environment: {', '.join(missing)}")
 
-            remote_agents = [
-                A2AAgent(url=self.settings.policy_a2a_url, memory=UnconstrainedMemory()),
-                A2AAgent(url=self.settings.research_a2a_url, memory=UnconstrainedMemory()),
-                A2AAgent(url=self.settings.provider_a2a_url, memory=UnconstrainedMemory()),
-            ]
-            await asyncio.gather(*(agent.check_agent_exists() for agent in remote_agents))
-            policy_agent, research_agent, provider_agent = remote_agents
+            dependencies = (
+                ("policy", self.settings.policy_a2a_url),
+                ("research", self.settings.research_a2a_url),
+                ("provider", self.settings.provider_a2a_url),
+            )
+            timeout = httpx.Timeout(
+                connect=30.0,
+                read=self.settings.a2a_discovery_timeout_seconds,
+                write=30.0,
+                pool=30.0,
+            )
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as http_client:
+                cards = await asyncio.gather(
+                    *(
+                        self._load_remote_agent_card(http_client, name, url)
+                        for name, url in dependencies
+                        if url is not None
+                    )
+                )
+
+            policy_agent, research_agent, provider_agent = (
+                A2AAgent(agent_card=card, memory=UnconstrainedMemory()) for card in cards
+            )
 
             self._agent = RequirementAgent(
                 name="HealthcareConciergeAgent",
@@ -142,4 +196,3 @@ def create_concierge_app(settings: Settings):
         executor=ConciergeExecutor(service),
         dependency_probe=lambda: {"ready": True, "initialized": service.initialized},
     )
-

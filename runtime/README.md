@@ -26,3 +26,9 @@ forward them correctly, set `PUBLIC_BASE_URL` explicitly in that runtime's
 The CLI manifest schema does not currently expose AgentRun's **Tracing
 Analysis** console switch. Enable it for all four runtimes in the AgentRun
 console after the first deployment.
+
+AgentRun may scale a downstream runtime to zero. Concierge therefore loads
+Agent Cards with an explicit read timeout and bounded exponential retries.
+Tune `A2A_DISCOVERY_TIMEOUT_SECONDS`, `A2A_DISCOVERY_MAX_ATTEMPTS`, and
+`A2A_DISCOVERY_BACKOFF_SECONDS` only when measured cold-start latency requires
+it; do not remove the bounds.
